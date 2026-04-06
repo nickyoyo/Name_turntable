@@ -43,9 +43,9 @@ def advanced_fuzzy_merge(name_list, threshold=0.65):
             "Nerve09u3": "Nerve0903",
             "Tachibat": "Tachiba7",
             "Tabc": "liiabc",
-            "Senbeinlguc": "Senbeimiguo"
-            "Senbeimiguc": "Senbeimiguo"
-            "lkal": "nkai"
+            "Senbeinlguc": "Senbeimiguo",
+            "Senbeimiguc": "Senbeimiguo",
+            "lkal": "nkai",
         }
         c = corrections.get(c, c)
         if len(c) >= 3: cleaned.append(c)
