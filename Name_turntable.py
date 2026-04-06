@@ -1,4 +1,4 @@
- import streamlit as st
+import streamlit as st
 import easyocr
 import numpy as np
 import cv2
