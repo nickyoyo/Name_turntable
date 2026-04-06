@@ -15,7 +15,7 @@ st.set_page_config(page_title="阿爾比恩 隊伍名條 抽獎轉盤", layout="
 @st.cache_resource
 def load_reader():
     # 強制只辨識英文與數字，降低混淆率
-    return easyocr.Reader(['en'], gpu=False)
+    return easyocr.Reader(['en'], gpu=True)
 
 def advanced_fuzzy_merge(name_list, threshold=0.65):
     """
@@ -45,6 +45,7 @@ def advanced_fuzzy_merge(name_list, threshold=0.65):
             "Tabc": "liiabc",
             "Senbeinlguc": "Senbeimiguo",
             "Senbeimiguc": "Senbeimiguo",
+            "Senbelmig": "Senbeimiguo",
             "lkal": "nkai",
         }
         c = corrections.get(c, c)
