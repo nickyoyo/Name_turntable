@@ -9,7 +9,7 @@ import difflib
 from io import BytesIO
 
 # --- 1. 頁面設定 ---
-st.set_page_config(page_title="終極 OCR 抽獎轉盤 (精準校正版)", layout="wide", page_icon="🎡")
+st.set_page_config(page_title="阿爾比恩 隊伍名條 抽獎轉盤", layout="wide", page_icon="🎡")
 
 # --- 2. 核心 OCR 與智慧過濾邏輯 ---
 @st.cache_resource
@@ -44,6 +44,8 @@ def advanced_fuzzy_merge(name_list, threshold=0.65):
             "Tachibat": "Tachiba7",
             "Tabc": "liiabc",
             "Senbeinlguc": "Senbeimiguo"
+            "Senbeimiguc": "Senbeimiguo"
+            "lkal": "nkai"
         }
         c = corrections.get(c, c)
         if len(c) >= 3: cleaned.append(c)
@@ -182,7 +184,7 @@ with c1:
         img_b64 = base64.b64encode(buffered.getvalue()).decode()
         
         st.markdown(
-            f'''<div style="height: 300px; overflow: auto; border: 2px solid #ddd; border-radius: 10px; margin-bottom: 10px; background: #f0f0f0; text-align: center;">
+            f'''<div style="height: 400px; overflow: auto; border: 2px solid #ddd; border-radius: 10px; margin-bottom: 10px; background: #f0f0f0; text-align: center;">
                 <img src="data:image/png;base64,{img_b64}" style="max-width: 100%;">
             </div>''', unsafe_allow_html=True
         )
