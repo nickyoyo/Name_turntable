@@ -179,7 +179,7 @@ with c1:
         img_preview.save(buffered, format="PNG")
         img_b64 = base64.b64encode(buffered.getvalue()).decode()
         st.markdown(
-            f'''<div style="height: 180px; overflow: auto; border: 2px solid #ddd; border-radius: 10px; margin-bottom: 10px; background: #f0f0f0; text-align: center;">
+            f'''<div style="height: 400px; overflow: auto; border: 2px solid #ddd; border-radius: 10px; margin-bottom: 10px; background: #f0f0f0; text-align: center;">
                 <img src="data:image/png;base64,{img_b64}" style="max-width: 100%;">
             </div>''', unsafe_allow_html=True
         )
@@ -194,7 +194,7 @@ with c2:
 with c3:
     st.subheader("📝 3. 名單與修正")
     st.write(f"當前人數：**{len(st.session_state.player_list)}**")
-    new_txt = st.text_area("編輯區", value="\n".join(st.session_state.player_list), height=350)
+    new_txt = st.text_area("編輯區", value="\n".join(st.session_state.player_list), height=280)
     if st.button("🔄 更新轉盤名單", use_container_width=True):
         st.session_state.player_list = [n.strip() for n in new_txt.split("\n") if n.strip()]
         st.rerun()
