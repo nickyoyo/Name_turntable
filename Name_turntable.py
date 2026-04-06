@@ -3,101 +3,157 @@ import easyocr
 import numpy as np
 import cv2
 from PIL import Image
-import random
-import time
+import json
 
 # 頁面設定
-st.set_page_config(page_title="遊戲抽獎轉盤 Pro", layout="wide", page_icon="🎡")
+st.set_page_config(page_title="遊戲抽獎輪盤", layout="wide", page_icon="🎡")
 
-# --- 1. 定義修正邏輯 (手動校正表) ---
+# --- 1. OCR 邏輯 ---
+@st.cache_resource
+def load_reader():
+    return easyocr.Reader(['en', 'ch_tra'], gpu=False)
+
 def advanced_name_fix(name):
-    # 針對圖片中容易看錯的特定字串進行強制替換
     corrections = {
         "J|[729": "JHE729",
         "alan10002o1": "alan1000201",
-        "BobCC": "Bobcc",
-        "J/729": "JHE729",
-        "Iiiabc": "liiabc"
+        "BobCC": "Bobcc"
     }
     return corrections.get(name, name)
 
-# --- 2. 初始化 OCR ---
-@st.cache_resource
-def load_reader():
-    # gpu=False 確保在 Streamlit Cloud 穩定執行
-    return easyocr.Reader(['en', 'ch_tra'], gpu=False)
-
 reader = load_reader()
 
-st.title("🎡 玩家名單掃描 & 抽獎工具")
-st.write("上傳截圖後，系統會自動修正已知錯誤並生成抽獎名單。")
+# --- 2. 界面佈局 ---
+st.title("🎡 實體旋轉抽獎輪盤")
 
-# Session State 初始化
 if 'player_list' not in st.session_state:
-    st.session_state.player_list = []
+    st.session_state.player_list = ["玩家1", "玩家2", "玩家3", "玩家4"]
 
-# --- 3. 檔案上傳與辨識 ---
-uploaded_file = st.file_uploader("步驟 1：上傳名單截圖", type=["jpg", "jpeg", "png"])
+col_file, col_wheel = st.columns([1, 2])
 
-if uploaded_file is not None:
-    col1, col2 = st.columns([1, 1])
-    img = Image.open(uploaded_file)
+with col_file:
+    st.subheader("第一步：掃描圖片")
+    uploaded_file = st.file_uploader("上傳截圖", type=["jpg", "png", "jpeg"])
     
-    with col1:
-        st.image(img, caption="上傳的圖片", use_container_width=True)
-
-    if st.button("🔍 開始掃描並修正名單"):
-        with st.spinner("辨識中..."):
+    if uploaded_file:
+        img = Image.open(uploaded_file)
+        st.image(img, use_container_width=True)
+        if st.button("🔍 辨識並更新輪盤"):
             img_array = np.array(img)
-            # 轉灰階提升辨識度
             gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-            # 限制字元集 (Allowlist) 可以有效減少雜訊字元出現
-            results = reader.readtext(gray, allowlist='0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-|[]/')
-            
-            scanned_names = []
-            for (bbox, text, prob) in results:
-                if len(text) > 1 and prob > 0.2:
-                    # 執行手動校正表
-                    fixed_name = advanced_name_fix(text)
-                    scanned_names.append(fixed_name)
-            
-            st.session_state.player_list = sorted(list(set(scanned_names))) # 去重並排序
+            results = reader.readtext(gray)
+            names = [advanced_name_fix(text) for (bbox, text, prob) in results if len(text) > 1 and prob > 0.2]
+            if names:
+                st.session_state.player_list = list(set(names))
+                st.success(f"已載入 {len(names)} 位玩家！")
 
-        if st.session_state.player_list:
-            st.success(f"成功辨識！共計 {len(st.session_state.player_list)} 位玩家。")
-        else:
-            st.error("未能辨識到名字，請更換截圖或調整亮度。")
+    # 手動編輯區
+    edited_names = st.text_area("編輯名單 (每行一個)", value="\n".join(st.session_state.player_list), height=200)
+    current_list = [n.strip() for n in edited_names.split("\n") if n.strip()]
+    if st.button("🎯 同步名單至轉盤"):
+        st.session_state.player_list = current_list
 
-# --- 4. 抽獎功能區 ---
-if st.session_state.player_list:
-    st.divider()
-    st.subheader("步驟 2：確認名單與抽獎")
+# --- 3. JavaScript 轉盤組件 ---
+with col_wheel:
+    st.subheader("第二步：點擊輪盤旋轉")
     
-    # 讓使用者可以做最後的手動微調
-    edited_list_str = st.text_area("確認抽獎名單 (如有錯誤請在此手動修改)", 
-                                   value="\n".join(st.session_state.player_list), 
-                                   height=200)
-    final_list = [n.strip() for n in edited_list_str.split("\n") if n.strip()]
+    # 將 Python 列表轉換為 JavaScript 陣列
+    json_list = json.dumps(st.session_state.player_list)
 
-    col_btn, col_result = st.columns([1, 2])
-    
-    with col_btn:
-        draw_clicked = st.button("🎰 開始抽獎！", type="primary", use_container_width=True)
+    # HTML/JS 轉盤代碼
+    wheel_html = f"""
+    <div style="display: flex; flex-direction: column; align-items: center;">
+        <canvas id="wheel" width="500" height="500" style="border-radius: 50%; box-shadow: 0 0 20px rgba(0,0,0,0.2);"></canvas>
+        <button id="spinBtn" style="margin-top: 20px; padding: 15px 40px; font-size: 20px; background-color: #ff4b4b; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">SPIN! 旋轉</button>
+        <h2 id="winnerDisplay" style="margin-top: 20px; color: #ff4b4b; min-height: 40px;"></h2>
+    </div>
 
-    if draw_clicked:
-        if final_list:
-            placeholder = st.empty()
-            # 轉盤滾動特效
-            for _ in range(20):
-                temp = random.choice(final_list)
-                placeholder.markdown(f"### 🎲 正在轉動... `{temp}`")
-                time.sleep(0.08)
+    <script>
+    const segments = {json_list};
+    const canvas = document.getElementById('wheel');
+    const ctx = canvas.getContext('2d');
+    const spinBtn = document.getElementById('spinBtn');
+    const winnerDisplay = document.getElementById('winnerDisplay');
+
+    let startAngle = 0;
+    const arc = Math.PI / (segments.length / 2);
+    let spinTimeout = null;
+    let spinAngleStart = 10;
+    let spinTime = 0;
+    let spinTimeTotal = 0;
+
+    function drawWheel() {{
+        ctx.clearRect(0, 0, 500, 500);
+        const centerX = 250;
+        const centerY = 250;
+        const radius = 240;
+
+        segments.forEach((text, i) => {{
+            const angle = startAngle + i * arc;
+            ctx.fillStyle = `hsl(${{(i * 360 / segments.length)}}, 70%, 60%)`;
             
-            winner = random.choice(final_list)
-            placeholder.markdown(f"## 🎊 中獎者：**{winner}** 🎊")
-            st.balloons()
-        else:
-            st.warning("請輸入至少一個名字。")
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY);
+            ctx.arc(centerX, centerY, radius, angle, angle + arc, false);
+            ctx.lineTo(centerX, centerY);
+            ctx.fill();
+            ctx.stroke();
 
-st.markdown("---")
-st.caption("提示：若 OCR 持續辨識錯誤，可將該錯誤字串加入程式碼中的 `corrections` 字典中。")
+            ctx.save();
+            ctx.fillStyle = "white";
+            ctx.translate(centerX + Math.cos(angle + arc / 2) * radius * 0.7, 
+                          centerY + Math.sin(angle + arc / 2) * radius * 0.7);
+            ctx.rotate(angle + arc / 2 + Math.PI / 2);
+            ctx.font = 'bold 16px Arial';
+            ctx.fillText(text, -ctx.measureText(text).width / 2, 0);
+            ctx.restore();
+        }});
+
+        // 繪製箭頭
+        ctx.fillStyle = "black";
+        ctx.beginPath();
+        ctx.moveTo(centerX + 10, centerY - radius - 10);
+        ctx.lineTo(centerX - 10, centerY - radius - 10);
+        ctx.lineTo(centerX, centerY - radius + 20);
+        ctx.fill();
+    }}
+
+    function rotateWheel() {{
+        spinTime += 30;
+        if (spinTime >= spinTimeTotal) {{
+            stopRotateWheel();
+            return;
+        }}
+        const spinAngle = spinAngleStart - easeOut(spinTime, 0, spinAngleStart, spinTimeTotal);
+        startAngle += (spinAngle * Math.PI / 180);
+        drawWheel();
+        spinTimeout = setTimeout(rotateWheel, 30);
+    }}
+
+    function stopRotateWheel() {{
+        clearTimeout(spinTimeout);
+        const degrees = startAngle * 180 / Math.PI + 90;
+        const arcd = arc * 180 / Math.PI;
+        const index = Math.floor((360 - (degrees % 360)) / arcd);
+        winnerDisplay.innerHTML = "🎊 中獎者: " + segments[index] + " 🎊";
+    }}
+
+    function easeOut(t, b, c, d) {{
+        const ts = (t /= d) * t;
+        const tc = ts * t;
+        return b + c * (tc + -3 * ts + 3 * t);
+    }}
+
+    spinBtn.addEventListener('click', () => {{
+        winnerDisplay.innerHTML = "🎲 旋轉中...";
+        spinAngleStart = Math.random() * 10 + 10;
+        spinTime = 0;
+        spinTimeTotal = Math.random() * 3000 + 4000;
+        rotateWheel();
+    }});
+
+    drawWheel();
+    </script>
+    """
+    import streamlit.components.v1 as components
+    components.html(wheel_html, height=700)
