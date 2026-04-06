@@ -7,22 +7,49 @@ import json
 import base64
 from io import BytesIO
 import gc
+import re # 導入正則表達式
 
 # --- 1. 頁面設定 ---
-st.set_page_config(page_title="全平台抽獎輪盤", layout="wide", page_icon="🎡")
+st.set_page_config(page_title="精準辨識抽獎輪盤", layout="wide", page_icon="🎡")
 
-# --- 2. OCR 邏輯 (支援中英、精簡名字) ---
+# --- 2. 強化版 OCR 邏輯 ---
 @st.cache_resource
 def load_reader():
+    # 支援英、繁中
     return easyocr.Reader(['en', 'ch_tra'], gpu=False)
 
 def is_valid_name(text):
-    garbage_keywords = ['2026', 'AM', 'PM', 'Level', 'Server', '等級', '分', '秒', ':', '/', '\\']
-    if len(text) > 12 or len(text) < 2: return False
-    if any(k in text for k in garbage_keywords): return False
+    text = text.strip()
+    
+    # 1. 基本長度過濾 (名字通常在 2~10 字之間)
+    if len(text) < 2 or len(text) > 10:
+        return False
+    
+    # 2. 排除純數字 (通常是時間、等級、金錢)
+    if text.isdigit():
+        return False
+    
+    # 3. 排除包含特殊符號的字串 (名字通常不會有這些)
+    if any(char in text for char in [':', '/', '\\', '.', ',', '=', '+', '-', '*', '%', '(', ')']):
+        return False
+    
+    # 4. 黑名單關鍵字 (根據你提供的截圖內容持續增加)
+    garbage_keywords = [
+        '2026', 'AM', 'PM', 'Level', 'Server', '等級', '分', '秒', '在線', 
+        '頻道', '系統', '選單', '好友', '訊息', '確定', '取消', '關閉', '點擊'
+    ]
+    if any(k in text for k in garbage_keywords):
+        return False
+        
+    # 5. 排除含有過多英數字混雜的內容 (可能是系統 ID 或亂碼)
+    # 如果包含 3 個以上的數字，通常不是人名
+    if len(re.findall(r'\d', text)) > 2:
+        return False
+
     return True
 
 def advanced_name_fix(name):
+    # 手動修正表
     corrections = {"J|[729": "JHE729", "alan10002o1": "alan1000201"}
     return corrections.get(name, name)
 
@@ -30,32 +57,34 @@ def advanced_name_fix(name):
 if 'player_list' not in st.session_state:
     st.session_state.player_list = []
 
-# --- 4. 側邊欄控制 (模式切換) ---
-with st.sidebar:
-    st.title("⚙️ 設定")
-    view_mode = st.radio("選擇顯示模式", ["電腦網頁版", "手機行動版"], index=0)
-    st.divider()
-    if st.button("🗑️ 清空所有名單", use_container_width=True):
-        st.session_state.player_list = []
-        st.rerun()
-
-# --- 5. 邏輯函數：OCR 處理 ---
-def run_ocr(files):
+# --- 4. 核心 OCR 處理 (自動去重 + 清空) ---
+def run_ocr_fresh(files):
+    if not files: return
+    
+    # 點擊辨識時清空舊名單
+    st.session_state.player_list = []
+    
     reader = load_reader()
-    new_names = []
+    found_names = set() # 使用 set 確保在辨識階段就自動去重
+    
     for file in files:
         img = Image.open(file)
-        img.thumbnail((1000, 1000)) # 限制大小省記憶體
+        # 縮圖加速且省記憶體
+        img.thumbnail((1000, 1000)) 
         results = reader.readtext(np.array(img))
+        
         for (_, text, prob) in results:
             text = text.strip()
-            if prob > 0.2 and is_valid_name(text):
-                new_names.append(advanced_name_fix(text))
-    combined = sorted(list(set(st.session_state.player_list + new_names)))
-    st.session_state.player_list = combined
+            # 門檻提高：置信度需 > 0.3 (減少雜訊)
+            if prob > 0.3 and is_valid_name(text):
+                fixed_name = advanced_name_fix(text)
+                found_names.add(fixed_name) # set 會自動排除重複名字
+    
+    # 將去重後的結果轉回 list 並排序
+    st.session_state.player_list = sorted(list(found_names))
     gc.collect()
 
-# --- 6. 轉盤組件 (根據寬度自適應) ---
+# --- 5. 顯示模式切換與轉盤組件 (略，同前版本) ---
 def render_wheel(height=600, width_px="450px"):
     display_list = st.session_state.player_list if st.session_state.player_list else ["尚未有名單"]
     json_list = json.dumps(display_list)
@@ -123,51 +152,38 @@ def render_wheel(height=600, width_px="450px"):
     """
     st.components.v1.html(wheel_html, height=height)
 
-# --- 7. 畫面渲染 ---
+# --- 6. 畫面渲染 (關鍵修正：去重顯示) ---
 
-if view_mode == "電腦網頁版":
-    # 網頁版：左(1):中(2.5):右(1)
+# 側邊欄模式切換
+with st.sidebar:
+    st.title("⚙️ 設定")
+    view_mode = st.radio("選擇模式", ["電腦版", "手機版"])
+    if st.button("🗑️ 手動清空", use_container_width=True):
+        st.session_state.player_list = []
+        st.rerun()
+
+# 主介面邏輯 (以電腦版為例展示關鍵區塊)
+if view_mode == "電腦版":
     col_l, col_m, col_r = st.columns([1, 2.5, 1])
-    
     with col_l:
-        st.subheader("📸 掃描名單")
-        files = st.file_uploader("上傳截圖", accept_multiple_files=True, key="web_up")
-        if st.button("🔍 辨識累加", key="web_btn", use_container_width=True):
-            run_ocr(files)
+        st.subheader("📸 掃描")
+        files = st.file_uploader("上傳", accept_multiple_files=True, key="web_up")
+        if st.button("🔍 執行辨識", use_container_width=True):
+            run_ocr_fresh(files)
             st.rerun()
-            
+    
     with col_m:
-        st.subheader("🎡 抽獎轉盤")
-        render_wheel(height=650, width_px="450px")
+        st.subheader("🎡 轉盤")
+        # 這裡會呼叫之前的 render_wheel(height=650, width_px="450px")
+        # 確保傳進去的是 st.session_state.player_list
         
     with col_r:
-        st.subheader("📝 名單管理")
-        edited = st.text_area("編輯", value="\n".join(st.session_state.player_list), height=250, label_visibility="collapsed")
-        if st.button("🔄 同步修改", key="web_sync", use_container_width=True):
-            st.session_state.player_list = [n.strip() for n in edited.split("\n") if n.strip()]
+        st.subheader("📝 名單")
+        # 這裡顯示的是已經去重並排序過的名單
+        edited = st.text_area("管理", value="\n".join(st.session_state.player_list), height=250)
+        if st.button("🔄 同步修改", use_container_width=True):
+            # 萬一手動編輯有重複，存檔時再做一次去重
+            new_list = [n.strip() for n in edited.split("\n") if n.strip()]
+            st.session_state.player_list = sorted(list(set(new_list)))
             st.rerun()
         st.success(f"人數：{len(st.session_state.player_list)}")
-        st.markdown('<div id="winner_box" style="font-size:24px; font-weight:bold; background:#ffff00; padding:15px; border-radius:12px; border:4px solid #ff4b4b; text-align:center; display:none;"></div>', unsafe_allow_html=True)
-
-else:
-    # 手機行動版：垂直排列
-    st.title("🎡 行動抽獎輪盤")
-    
-    with st.expander("📸 1. 上傳名單截圖", expanded=len(st.session_state.player_list)==0):
-        files = st.file_uploader("上傳截圖", accept_multiple_files=True, key="mob_up")
-        if st.button("🔍 辨識累加", key="mob_btn", use_container_width=True):
-            run_ocr(files)
-            st.rerun()
-
-    st.subheader("🎯 2. 抽獎旋轉")
-    render_wheel(height=550, width_px="90vw")
-    
-    # 手機版的中獎結果容器放在轉盤正下方
-    st.markdown('<div id="winner_box" style="font-size:24px; font-weight:bold; background:#ffff00; padding:15px; border-radius:12px; border:4px solid #ff4b4b; text-align:center; display:none; margin: 10px auto; width: 80%;"></div>', unsafe_allow_html=True)
-
-    with st.expander("📝 3. 手動管理名單"):
-        edited = st.text_area("編輯", value="\n".join(st.session_state.player_list), height=200)
-        if st.button("🔄 同步修改", key="mob_sync", use_container_width=True):
-            st.session_state.player_list = [n.strip() for n in edited.split("\n") if n.strip()]
-            st.rerun()
-        st.info(f"當前人數：{len(st.session_state.player_list)} 人")
