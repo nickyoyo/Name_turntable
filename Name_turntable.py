@@ -44,7 +44,7 @@ with col_left:
         img.save(buffered, format="PNG")
         img_str = base64.b64encode(buffered.getvalue()).decode()
         st.markdown(
-            f'''<div style="height: 180px; overflow-y: auto; border: 1px solid #ddd; border-radius: 5px; margin-bottom: 10px;">
+            f'''<div style="height: 400px; overflow-y: auto; border: 1px solid #ddd; border-radius: 5px; margin-bottom: 10px;">
                 <img src="data:image/png;base64,{img_str}" style="width: 100%;">
             </div>''', unsafe_allow_html=True
         )
