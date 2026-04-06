@@ -42,20 +42,6 @@ with col_left:
         # 優化：限制預覽圖高度為 250px，確保下方的「辨識按鈕」不被擠下去
         st.image(img, use_container_width=True) 
         
-        # 將圖片轉為 base64 嵌入 HTML
-        buffered = BytesIO()
-        img.save(buffered, format="PNG")
-        img_str = base64.b64encode(buffered.getvalue()).decode()
-        
-        # 關鍵修改：使用 HTML/CSS 強制限制顯示高度為 150px，超過會出現捲軸
-        st.markdown(
-            f'''
-            <div style="height: 400px; overflow-y: auto; border: 1px solid #ddd; border-radius: 5px; margin-bottom: 10px;">
-                <img src="data:image/png;base64,{img_str}" style="width: 100%;">
-            </div>
-            ''', 
-            unsafe_allow_html=True
-        )
         
         if st.button("🔍 執行辨識", use_container_width=True):
             with st.spinner("辨識中..."):
