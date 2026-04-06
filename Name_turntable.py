@@ -35,13 +35,15 @@ def advanced_fuzzy_merge(name_list, threshold=0.65):
         if c.startswith('nKal'): c = 'Ikal'
         # 處理已知 ID
         corrections = {
-            "arshedAtcz": "TarnishedArct",
-            "TartshedAttt": "TarnishedArct",
+            "arshedAtcz": "TarnishedArcher",
+            "TartshedAttt": "TarnishedArcher",
             "lifabc": "liiabc",
-            "Iabc": "Iiiabc",
+            "Iabc": "liiabc",
             "Nerveogu3": "Nerve0903",
+            "Nerve09u3": "Nerve0903",
             "Tachibat": "Tachiba7",
-            "Senbeinlguc": "Senbeimiguc"
+            "Tabc": "liiabc",
+            "Senbeinlguc": "Senbeimiguo"
         }
         c = corrections.get(c, c)
         if len(c) >= 3: cleaned.append(c)
@@ -180,7 +182,7 @@ with c1:
         img_b64 = base64.b64encode(buffered.getvalue()).decode()
         
         st.markdown(
-            f'''<div style="height: 180px; overflow: auto; border: 2px solid #ddd; border-radius: 10px; margin-bottom: 10px; background: #f0f0f0; text-align: center;">
+            f'''<div style="height: 300px; overflow: auto; border: 2px solid #ddd; border-radius: 10px; margin-bottom: 10px; background: #f0f0f0; text-align: center;">
                 <img src="data:image/png;base64,{img_b64}" style="max-width: 100%;">
             </div>''', unsafe_allow_html=True
         )
