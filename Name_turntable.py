@@ -29,16 +29,8 @@ reader = load_reader()
 if 'player_list' not in st.session_state:
     st.session_state.player_list = [] # 預設空名單，等待掃描
     
-# --- 3. 側邊欄設定 ---
-with st.sidebar:
-    st.title("⚙️ 系統設定")
-    view_mode = st.radio("顯示模式", ["電腦網頁版", "手機行動版"], index=0)
-    st.divider()
-    if st.button("🗑️ 清空目前名單", use_container_width=True):
-        st.session_state.player_list = []
-        st.rerun()
 
-# --- 4. 界面佈局 ---
+# --- 3. 界面佈局 ---
 col_left, col_mid, col_right = st.columns([1, 2.5, 1])
 
 # --- 左欄：多圖上傳與累加 ---
@@ -180,7 +172,7 @@ with col_right:
         ''', unsafe_allow_html=True
     )
     
-    # --- 5. 主介面渲染 ---
+    # --- 7. 主介面渲染 ---
 
 if view_mode == "電腦網頁版":
     col_l, col_m, col_r = st.columns([1.2, 2.5, 1.2])
