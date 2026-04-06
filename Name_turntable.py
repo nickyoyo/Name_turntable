@@ -167,27 +167,22 @@ def get_wheel_html(size_px="450"):
     draw();
     </script>
     """
-
 # --- 5. 介面佈局 ---
 c1, c2, c3 = st.columns([1.2, 2, 1.2])
 
 with c1:
     st.subheader("📸 1. 上傳截圖")
     file = st.file_uploader("請拖入遊戲圖片", type=["png", "jpg", "jpeg"])
-    
     if file:
-        # 縮小預覽圖顯示
         img_preview = Image.open(file)
         buffered = BytesIO()
         img_preview.save(buffered, format="PNG")
         img_b64 = base64.b64encode(buffered.getvalue()).decode()
-        
         st.markdown(
-            f'''<div style="height: 400px; overflow: auto; border: 2px solid #ddd; border-radius: 10px; margin-bottom: 10px; background: #f0f0f0; text-align: center;">
+            f'''<div style="height: 180px; overflow: auto; border: 2px solid #ddd; border-radius: 10px; margin-bottom: 10px; background: #f0f0f0; text-align: center;">
                 <img src="data:image/png;base64,{img_b64}" style="max-width: 100%;">
             </div>''', unsafe_allow_html=True
         )
-        
         if st.button("🔍 辨識名單", type="primary", use_container_width=True):
             run_ocr(file)
             st.rerun()
@@ -195,12 +190,16 @@ with c1:
 with c2:
     st.subheader("🎡 2. 幸運大轉盤")
     st.components.v1.html(get_wheel_html(420), height=580)
-    st.markdown('<div id="res_win" style="display:none; background:#ffffcc; padding:20px; border:4px solid #ffcc00; border-radius:15px; text-align:center; font-size:28px; font-weight:bold; color: #d63031; margin-top:-20px;"></div>', unsafe_allow_html=True)
 
 with c3:
-    st.subheader("📝 3. 名單與手動修正")
+    st.subheader("📝 3. 名單與修正")
     st.write(f"當前人數：**{len(st.session_state.player_list)}**")
-    new_txt = st.text_area("編輯區 (每一行一個名字)", value="\n".join(st.session_state.player_list), height=400)
-    if st.button("🔄 更新轉盤", use_container_width=True):
+    new_txt = st.text_area("編輯區", value="\n".join(st.session_state.player_list), height=350)
+    if st.button("🔄 更新轉盤名單", use_container_width=True):
         st.session_state.player_list = [n.strip() for n in new_txt.split("\n") if n.strip()]
         st.rerun()
+    
+    # --- 新增：第 4 點 中獎結果放在這裡 ---
+    st.markdown("---")
+    st.subheader("🏆 4. 中獎結果")
+    st.markdown('<div id="res_win" style="display:none; background:#ffffcc; padding:15px; border:3px solid #ffcc00; border-radius:12px; text-align:center; font-size:22px; font-weight:bold; color: #d63031;">尚未開獎</div>', unsafe_allow_html=True)
