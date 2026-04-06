@@ -7,62 +7,88 @@ import json
 import base64
 from io import BytesIO
 
-# 頁面設定
-st.set_page_config(page_title="OCR 抽獎輪盤", layout="wide", page_icon="🎡")
+# --- 1. 頁面設定 ---
+st.set_page_config(page_title="極速 OCR 抽獎輪盤", layout="wide", page_icon="🎡")
 
-# --- 1. OCR 邏輯 ---
+# --- 2. OCR 核心與加速邏輯 ---
 @st.cache_resource
 def load_reader():
-    # 載入英文與繁體中文模型
-    return easyocr.Reader(['en', 'ch_tra'], gpu=True)
+    # 載入模型 (僅在啟動時執行一次)
+    return easyocr.Reader(['en', 'ch_tra'], gpu=False)
 
 def advanced_name_fix(name):
+    """人工容錯字典：修正 OCR 易混淆的遊戲 ID"""
     corrections = {
-        "J|[729": "JHE729", "alan10002o1": "alan1000201", "BobCC": "Bobcc",
-        "J/729": "JHE729", "Iiiabc": "liiabc"
+        "H[729": "JHE729",
+        "J|[729": "JHE729",
+        "laciiba1": "Tachiba7",
+        "alan10002o1": "alan1000201",
+        "Ifal": "",  # 排除血條雜訊
     }
-    return corrections.get(name, name)
+    fixed = corrections.get(name, name)
+    # 模糊匹配：若包含 729 且開頭不全，強制校正
+    if "729" in fixed and not fixed.startswith("JHE"):
+        return "JHE729"
+    return fixed
 
 reader = load_reader()
 
 def run_ocr(uploaded_files):
-    """執行 OCR 並覆蓋目前名單"""
+    """核心辨識函式：優化速度與精準度"""
     if not uploaded_files:
         st.warning("請先選取圖片！")
         return
     
     all_new_names = []
-    with st.spinner("正在辨識圖片中..."):
-        for file in uploaded_files:
-            img = Image.open(file)
-            img_array = np.array(img)
-            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-            results = reader.readtext(gray)
-            for (_, text, prob) in results:
-                if len(text) > 1 and prob > 0.15:
-                    all_new_names.append(advanced_name_fix(text))
+    # 白名單：只允許英數與底線，避開 [ ] | / 等干擾符號
+    allow_chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-'
     
-    # 關鍵改動：直接覆蓋 session_state，不與舊名單合併
+    with st.spinner("正在辨識中 (預計 3-7 秒)..."):
+        for file in uploaded_files:
+            # 讀取圖片並壓縮尺寸以提升辨識速度
+            img = Image.open(file)
+            max_width = 1000  # 限制寬度在 1000px 以內，大幅縮短運算時間
+            if img.width > max_width:
+                w_percent = (max_width / float(img.width))
+                h_size = int((float(img.height) * float(w_percent)))
+                img = img.resize((max_width, h_size), Image.Resampling.LANCZOS)
+            
+            img_array = np.array(img)
+            
+            # --- 圖像預處理：強化文字對比 ---
+            # 1. 轉灰階
+            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+            # 2. 二值化：讓白色文字變更鮮明，過濾紅色背景
+            _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            
+            # 執行辨識 (優化參數：mag_ratio=1.0 可省去放大圖片的時間)
+            results = reader.readtext(binary, allowlist=allow_chars, mag_ratio=1.0)
+            
+            for (_, text, prob) in results:
+                if len(text) > 2 and prob > 0.15:
+                    fixed = advanced_name_fix(text.strip())
+                    if fixed:
+                        all_new_names.append(fixed)
+    
+    # 邏輯：按下辨識即覆蓋舊名單 (去重並排序)
     st.session_state.player_list = sorted(list(set(all_new_names)))
-    st.success(f"辨識完成！共匯入 {len(st.session_state.player_list)} 名玩家。")
+    st.success(f"辨識完成！共計 {len(st.session_state.player_list)} 人。")
 
-# --- 2. 狀態初始化 ---
+# --- 3. 初始化 Session ---
 if 'player_list' not in st.session_state:
     st.session_state.player_list = []
-    
-# --- 3. 輪盤 HTML 生成 ---
+
+# --- 4. 輪盤 HTML 元件 ---
 def get_wheel_html(size_px="450"):
-    display_list = st.session_state.player_list if st.session_state.player_list else ["請先掃描名單"]
+    display_list = st.session_state.player_list if st.session_state.player_list else ["請先辨識名單"]
     json_list = json.dumps(display_list)
-    
-    # 動態計算轉盤半徑
-    radius = int(int(size_px.replace('px', '').replace('vw', '')) / 2)
+    r = int(int(size_px) / 2)
     
     return f"""
     <div style="display: flex; flex-direction: column; align-items: center; font-family: sans-serif;">
         <div id="container" style="position: relative;">
             <canvas id="wheel" width="{size_px}" height="{size_px}" style="border: 5px solid #333; border-radius: 50%;"></canvas>
-            <div id="pointer" style="position: absolute; top: -15px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 18px solid transparent; border-right: 18px solid transparent; border-top: 35px solid #333; z-index: 10;"></div>
+            <div id="pointer" style="position: absolute; top: -15px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 18px solid transparent; border-right: 18px solid transparent; border-top: 30px solid #333; z-index: 10;"></div>
         </div>
         <button id="spinBtn" style="margin-top: 20px; padding: 12px 60px; font-size: 22px; background: #ff4b4b; color: white; border: none; border-radius: 50px; cursor: pointer; font-weight: bold;">SPIN! 抽獎</button>
     </div>
@@ -72,10 +98,10 @@ def get_wheel_html(size_px="450"):
     const ctx = canvas.getContext('2d');
     const spinBtn = document.getElementById('spinBtn');
     let currentAngle = 0;
-    const colors = segments.map((_, i) => `hsl(${{(i * 360 / segments.length)}}, 75%, 60%)`);
+    const colors = segments.map((_, i) => `hsl(${{(i * 360 / segments.length)}}, 70%, 60%)`);
 
     function drawWheel() {{
-        const r = {radius};
+        const r = {r};
         const arc = 2 * Math.PI / segments.length;
         ctx.clearRect(0, 0, {size_px}, {size_px});
         segments.forEach((text, i) => {{
@@ -84,12 +110,12 @@ def get_wheel_html(size_px="450"):
             ctx.beginPath(); ctx.moveTo(r, r); ctx.arc(r, r, r, angle, angle + arc); ctx.fill();
             ctx.strokeStyle = "white"; ctx.stroke();
             ctx.save(); ctx.fillStyle = "white"; ctx.translate(r, r); ctx.rotate(angle + arc / 2);
-            ctx.textAlign = "right"; ctx.font = "bold 15px Arial"; ctx.fillText(text, r-15, 8); ctx.restore();
+            ctx.textAlign = "right"; ctx.font = "bold 14px Arial"; ctx.fillText(text, r - 20, 7); ctx.restore();
         }});
     }}
 
     spinBtn.addEventListener('click', () => {{
-        if (segments.length <= 1 && segments[0] === "請先掃描名單") return;
+        if (segments.length <= 1 && segments[0] === "請先辨識名單") return;
         spinBtn.disabled = true;
         const display = window.parent.document.querySelector("#winner_box");
         if(display) display.style.display = "none";
@@ -126,50 +152,48 @@ def get_wheel_html(size_px="450"):
     </script>
     """
 
-# --- 4. 主介面渲染 ---
+# --- 5. 介面佈局 ---
 st.sidebar.title("⚙️ 系統設定")
 view_mode = st.sidebar.radio("顯示模式", ["電腦網頁版", "手機行動版"])
 
 if view_mode == "電腦網頁版":
-    col_left, col_mid, col_right = st.columns([1.2, 2.5, 1.2])
+    col_l, col_m, col_r = st.columns([1.2, 2.5, 1.2])
     
-    with col_left:
-        st.subheader("📸 1. 上傳名單")
+    with col_l:
+        st.subheader("📸 1. 上傳截圖")
         files = st.file_uploader("選取圖片", accept_multiple_files=True, key="pc_up")
-        if st.button("🔍 開始辨識並更新名單", use_container_width=True, type="primary"):
+        if st.button("🔍 開始辨識 (覆蓋舊名單)", use_container_width=True, type="primary"):
             run_ocr(files)
             st.rerun()
             
-    with col_mid:
+    with col_m:
         st.subheader("🎡 2. 抽獎轉盤")
-        st.components.v1.html(get_wheel_html("450"), height=600)
+        st.components.v1.html(get_wheel_html("450"), height=620)
         
-    with col_right:
+    with col_r:
         st.subheader("📝 3. 名單管理")
         st.info(f"當前人數：{len(st.session_state.player_list)}")
-        edited = st.text_area("辨識結果 (可手動調整)", value="\n".join(st.session_state.player_list), height=300)
-        if st.button("🔄 同步至轉盤", use_container_width=True):
+        edited = st.text_area("編輯區 (手動刪除雜訊)", value="\n".join(st.session_state.player_list), height=300)
+        if st.button("🔄 同步修改至轉盤", use_container_width=True):
             st.session_state.player_list = sorted(list(set([n.strip() for n in edited.split("\n") if n.strip()])))
             st.rerun()
-        st.markdown('<div id="winner_box" style="display:none; background:#ffff00; padding:20px; font-weight:bold; text-align:center; border:3px solid red; border-radius:10px; font-size:22px; margin-top:10px;"></div>', unsafe_allow_html=True)
+        st.markdown('<div id="winner_box" style="display:none; background:#ffff00; padding:20px; font-weight:bold; text-align:center; border:4px solid red; border-radius:10px; font-size:22px; margin-top:15px;"></div>', unsafe_allow_html=True)
 
 else:
     # 手機行動版
     st.title("🎡 行動抽獎系統")
-    
-    with st.expander("📸 1. 上傳與辨識", expanded=len(st.session_state.player_list)==0):
+    with st.expander("📸 1. 上傳與辨識", expanded=(len(st.session_state.player_list) == 0)):
         files = st.file_uploader("選取截圖", accept_multiple_files=True, key="mob_up")
-        if st.button("🔍 執行辨識 (覆蓋舊名單)", use_container_width=True, type="primary"):
+        if st.button("🔍 執行辨識", use_container_width=True, type="primary"):
             run_ocr(files)
             st.rerun()
 
     st.subheader("🎯 2. 旋轉抽獎")
     st.components.v1.html(get_wheel_html("320"), height=480)
-    st.markdown('<div id="winner_box" style="display:none; background:#ffff00; padding:15px; font-weight:bold; text-align:center; border:3px solid red; border-radius:10px; font-size:18px; margin: 10px 0;"></div>', unsafe_allow_html=True)
+    st.markdown('<div id="winner_box" style="display:none; background:#ffff00; padding:15px; font-weight:bold; text-align:center; border:4px solid red; border-radius:10px; font-size:18px; margin: 10px 0;"></div>', unsafe_allow_html=True)
 
     with st.expander("📝 3. 名單管理"):
-        st.write(f"當前人數：{len(st.session_state.player_list)}")
         edited = st.text_area("編輯名單", value="\n".join(st.session_state.player_list), height=250)
-        if st.button("🔄 更新轉盤", use_container_width=True):
+        if st.button("🔄 更新", use_container_width=True):
             st.session_state.player_list = sorted(list(set([n.strip() for n in edited.split("\n") if n.strip()])))
             st.rerun()
