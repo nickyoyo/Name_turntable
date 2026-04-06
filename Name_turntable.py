@@ -182,4 +182,18 @@ if mode == "電腦網頁版":
         st.markdown('<div id="winner_box" style="display:none; background:#ffffcc; padding:15px; border:3px solid #ffcc00; border-radius:12px; text-align:center; font-size:26px; font-weight:bold;"></div>', unsafe_allow_html=True)
     with c3:
         st.subheader("📝 3. 目前名單")
-        st
+        st.info(f"總計人數: {len(st.session_state.player_list)}")
+        new_list = st.text_area("編輯區", value="\n".join(st.session_state.player_list), height=400)
+        if st.button("🔄 同步手動更新"):
+            st.session_state.player_list = sorted(list(set([n.strip() for n in new_list.split("\n") if n.strip()])))
+            st.rerun()
+else:
+    # 手機版佈局
+    st.title("🎡 行動抽獎轉盤")
+    file = st.file_uploader("上傳截圖", type=["png", "jpg", "jpeg"], key="mob_up")
+    if file and st.button("🔍 執行辨識", type="primary", use_container_width=True):
+        run_ocr(file)
+    st.components.v1.html(get_wheel_html("320"), height=450)
+    st.markdown('<div id="winner_box" style="display:none; background:#ffffcc; padding:10px; border:2px solid #ffcc00; border-radius:10px; text-align:center; font-size:20px; font-weight:bold;"></div>', unsafe_allow_html=True)
+    with st.expander("📝 編輯名單"):
+        st.text_area("名單", value="\n".join(st.session_state.player_list), height=250)
