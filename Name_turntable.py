@@ -3,75 +3,92 @@ import easyocr
 import numpy as np
 import cv2
 from PIL import Image
-import pandas as pd
+import random
+import time
 
-# 頁面基本設定
-st.set_page_config(page_title="玩家名單掃描器", layout="wide")
+# 頁面設定
+st.set_page_config(page_title="遊戲抽獎轉盤", layout="wide", page_icon="🎡")
 
-# 初始化 OCR 模型 (使用快取避免重複載入)
+# --- CSS 美化輪盤效果 ---
+st.markdown("""
+    <style>
+    .winner-box {
+        padding: 20px;
+        border-radius: 10px;
+        background-color: #f0f2f6;
+        border: 2px solid #ff4b4b;
+        text-align: center;
+        font-size: 30px;
+        font-weight: bold;
+        color: #ff4b4b;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# 1. 初始化 OCR (強制 CPU 模式)
 @st.cache_resource
 def load_reader():
-    # 支援英文與繁體中文，強制使用 CPU 模式 (gpu=False) 以適應雲端環境
     return easyocr.Reader(['en', 'ch_tra'], gpu=False)
 
-try:
-    reader = load_reader()
-except Exception as e:
-    st.error(f"OCR 模型初始化失敗: {e}")
+reader = load_reader()
 
-st.title("🛡️ 遊戲玩家 ID 自動提取工具")
-st.write("請上傳一張包含玩家名單的截圖，程式將自動分析文字。")
+st.title("🎡 玩家名單掃描 & 幸運抽獎機")
+st.write("上傳截圖自動抓取玩家，並直接進行隨機抽獎！")
 
-# 側邊欄設定
-st.sidebar.header("辨識參數")
-min_conf = st.sidebar.slider("信心值門檻", 0.1, 1.0, 0.3, help="數值越高越嚴格，可過濾雜訊。")
+# 2. 檔案上傳
+uploaded_file = st.file_uploader("步驟 1：上傳名單截圖", type=["jpg", "jpeg", "png"])
 
-# 檔案上傳
-uploaded_file = st.file_uploader("選擇圖片檔 (JPG/PNG)", type=["jpg", "jpeg", "png"])
+# 初始化 Session State 用來儲存名單，避免網頁刷新就消失
+if 'player_list' not in st.session_state:
+    st.session_state.player_list = []
 
 if uploaded_file is not None:
-    # 轉換圖片格式
-    image = Image.open(uploaded_file)
-    img_array = np.array(image)
-
     col1, col2 = st.columns([1, 1])
-
+    
+    img = Image.open(uploaded_file)
     with col1:
-        st.image(image, caption="原始截圖", use_container_width=True)
+        st.image(img, caption="上傳的圖片", use_container_width=True)
 
-    with col2:
-        st.subheader("📝 辨識清單")
-        with st.spinner("正在辨識中，請稍候..."):
-            try:
-                # 影像預處理：轉灰階提高對比
-                gray_img = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-                
-                # 執行 OCR
-                results = reader.readtext(gray_img)
-
-                # 過濾並整理結果
-                final_names = []
-                for (bbox, text, prob) in results:
-                    if prob >= min_conf and len(text) > 1:
-                        final_names.append({"玩家名字": text, "信心值": f"{prob:.2%}"})
-
-                if final_names:
-                    df = pd.DataFrame(final_names)
-                    st.dataframe(df, use_container_width=True)
-                    
-                    # CSV 下載功能
-                    csv_data = df.to_csv(index=False).encode('utf-8-sig')
-                    st.download_button(
-                        label="📥 下載名單 (CSV)",
-                        data=csv_data,
-                        file_name="player_list.csv",
-                        mime="text/csv"
-                    )
-                else:
-                    st.warning("在此信心值下未偵測到任何文字，請嘗試調低左側門檻。")
+    # 辨識邏輯
+    if st.button("🔍 開始掃描名單"):
+        with st.spinner("正在辨識中..."):
+            img_array = np.array(img)
+            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+            results = reader.readtext(gray)
             
-            except Exception as e:
-                st.error(f"辨識過程發生錯誤: {e}")
+            # 過濾名字
+            names = [text for (bbox, text, prob) in results if len(text) > 1 and prob > 0.3]
+            st.session_state.player_list = list(set(names)) # 去重
+            
+        if st.session_state.player_list:
+            st.success(f"成功掃描到 {len(st.session_state.player_list)} 位玩家！")
+        else:
+            st.error("掃描不到名字，請確認圖片是否清晰。")
 
-st.divider()
-st.caption("v1.1 | Powered by EasyOCR & Streamlit")
+# 3. 抽獎/轉盤功能區
+if st.session_state.player_list:
+    st.divider()
+    st.subheader("步驟 2：開始抽獎")
+    
+    # 顯示目前名單（可以手動編輯）
+    edited_list = st.text_area("目前的抽獎名單 (每行一個名字)", value="\n".join(st.session_state.player_list), height=150)
+    final_list = [n.strip() for n in edited_list.split("\n") if n.strip()]
+
+    if st.button("🎰 點我抽獎！", type="primary"):
+        if len(final_list) > 0:
+            # 模擬轉盤動畫
+            placeholder = st.empty()
+            for i in range(15): # 模擬滾動 15 次
+                temp_winner = random.choice(final_list)
+                placeholder.markdown(f"<div class='winner-box'>🎲 轉動中... {temp_winner}</div>", unsafe_allow_html=True)
+                time.sleep(0.1)
+            
+            # 最終中獎者
+            winner = random.choice(final_list)
+            placeholder.markdown(f"<div class='winner-box'>🎊 恭喜得獎者：{winner} 🎊</div>", unsafe_allow_html=True)
+            st.balloons() # 噴彩帶特效
+        else:
+            st.warning("名單是空的！")
+
+# 底部說明
+st.info("💡 提示：你可以手動修改上面的文字區域，增減參與抽獎的人員。")
