@@ -10,10 +10,10 @@ from io import BytesIO
 # 頁面設定
 st.set_page_config(page_title="遊戲抽獎輪盤 Pro", layout="wide", page_icon="🎡")
 
-# --- 1. OCR 邏輯 (已開啟中文辨識) ---
+# --- 1. OCR 邏輯 ---
 @st.cache_resource
 def load_reader():
-    # 加入 'ch_tra' 以支援繁體中文辨識
+    # 支援英文與繁體中文辨識
     return easyocr.Reader(['en', 'ch_tra'], gpu=False)
 
 def advanced_name_fix(name):
@@ -25,11 +25,10 @@ def advanced_name_fix(name):
 
 reader = load_reader()
 
-# --- 2. 介面佈局 ---
+# --- 2. 界面佈局 ---
 if 'player_list' not in st.session_state:
     st.session_state.player_list = ["玩家1", "玩家2", "玩家3", "玩家4", "玩家5", "玩家6"]
 
-# 設定欄位比例
 col_left, col_mid, col_right = st.columns([1, 2.5, 1])
 
 # --- 左欄：圖片預覽 (限高) ---
@@ -42,7 +41,6 @@ with col_left:
         buffered = BytesIO()
         img.save(buffered, format="PNG")
         img_str = base64.b64encode(buffered.getvalue()).decode()
-        # 限制高度確保按鈕不被擠下去
         st.markdown(
             f'''<div style="height: 400px; overflow-y: auto; border: 1px solid #ddd; border-radius: 5px; margin-bottom: 10px;">
                 <img src="data:image/png;base64,{img_str}" style="width: 100%;">
@@ -59,7 +57,7 @@ with col_left:
                     st.session_state.player_list = sorted(list(set(names)))
                     st.rerun()
 
-# --- 中欄：純轉盤顯示 ---
+# --- 中欄：轉盤功能 ---
 with col_mid:
     st.subheader("🎡 2. 抽獎轉盤")
     json_list = json.dumps(st.session_state.player_list)
@@ -96,9 +94,14 @@ with col_mid:
     spinBtn.addEventListener('click', () => {{
         if (segments.length === 0) return;
         spinBtn.disabled = true;
+        
+        // 每次點擊旋轉時，先隱藏右側的中獎結果
+        const display = window.parent.document.querySelector("#winner_box");
+        if(display) display.style.display = "none";
+
         const startTime = Date.now(); 
-        const duration = 5000; // 旋轉 5 秒
-        const minRounds = 8;   // 至少轉 8 圈
+        const duration = 5000; 
+        const minRounds = 8;   
         const totalRotation = (minRounds * 360) + Math.random() * 360; 
         const startAngle = currentAngle;
 
@@ -117,34 +120,25 @@ with col_mid:
                 const index = Math.floor((360 - (degrees + 90) % 360) / sliceSize) % segments.length;
                 const winner = segments[index >= 0 ? index : index + segments.length];
                 
-                // 修正：透過 window.parent 將中獎資訊傳回 Streamlit 顯示
-                // 但為了簡單，我們直接在 JS 結束後修改父視窗內容或通知
-                // 這裡我們直接操作父視窗的一個隱藏元素或利用 Streamlit 渲染機制
-                // 為了最穩定，這裡僅透過按鈕觸發後在右側顯示預留空間
-                document.dispatchEvent(new CustomEvent("winner_found", {{ detail: winner }}));
+                // 結束後顯示中獎結果
+                if(display) {{
+                    display.innerHTML = "<div style='font-size:16px; color:#666;'>WINNER</div><div style='color:#ff4b4b;'>🎊 " + winner + " 🎊</div>";
+                    display.style.display = "block";
+                }}
             }}
         }}
         requestAnimationFrame(animate);
     }});
     drawWheel();
-
-    // 監聽事件並顯示結果
-    document.addEventListener("winner_found", (e) => {{
-        const display = window.parent.document.querySelector("#winner_box");
-        if(display) {{
-            display.innerHTML = "🎊 WINNER: " + e.detail + " 🎊";
-            display.style.display = "block";
-        }}
-    }});
     </script>
     """
     import streamlit.components.v1 as components
     components.html(wheel_html, height=600)
 
-# --- 右欄：名單管理 + 中獎結果 ---
+# --- 右欄：名單管理 + 隱藏式中獎結果 ---
 with col_right:
     st.subheader("📝 3. 名單管理")
-    edited_names = st.text_area("名單編輯", value="\n".join(st.session_state.player_list), height=250)
+    edited_names = st.text_area("名單編輯", value="\n".join(st.session_state.player_list), height=250, label_visibility="collapsed")
     current_list = [n.strip() for n in edited_names.split("\n") if n.strip()]
     
     if st.button("🔄 同步至轉盤", use_container_width=True):
@@ -153,16 +147,17 @@ with col_right:
     
     st.success(f"當前人數：{len(st.session_state.player_list)} 人")
     
-    st.divider()
+    # 增加一點間距
+    st.markdown("<br>", unsafe_allow_html=True)
     
-    # --- 中獎顯示區移到這裡 ---
-    st.subheader("🏆 中獎者")
-    # 使用一個帶有 ID 的 markdown 容器，讓上面的 JS 可以把結果填進來
-    # 或是透過 Session State 顯示（這裡採用 Streamlit 原生顯示最穩定）
-    # 注意：JS 與 Python 通訊較複雜，此處示範使用 JS 操作 DOM 或簡單提示
+    # --- 中獎顯示區 (預設隱藏且無提示字) ---
     st.markdown(
         '''<div id="winner_box" style="font-size: 24px; font-weight: bold; background: #ffff00; 
-        padding: 15px; border-radius: 10px; border: 3px solid #ff4b4b; text-align: center; display: none;">
-        </div>''', unsafe_allow_html=True
+        padding: 15px; border-radius: 12px; border: 4px solid #ff4b4b; text-align: center; 
+        display: none; box-shadow: 0 4px 10px rgba(0,0,0,0.1); animation: fadeIn 0.5s;">
+        </div>
+        <style>
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        </style>
+        ''', unsafe_allow_html=True
     )
-    st.info("點擊 SPIN 後結果將顯示於此。")
