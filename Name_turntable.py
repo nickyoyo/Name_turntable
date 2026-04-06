@@ -4,6 +4,8 @@ import numpy as np
 import cv2
 from PIL import Image
 import json
+import base64
+from io import BytesIO
 
 # 頁面設定
 st.set_page_config(page_title="遊戲抽獎輪盤 Pro", layout="wide", page_icon="🎡")
@@ -15,57 +17,66 @@ def load_reader():
 
 def advanced_name_fix(name):
     corrections = {
-        "J|[729": "JHE729",
-        "alan10002o1": "alan1000201",
-        "BobCC": "Bobcc",
-        "J/729": "JHE729",
-        "Iiiabc": "liiabc"
+        "J|[729": "JHE729", "alan10002o1": "alan1000201", "BobCC": "Bobcc",
+        "J/729": "JHE729", "Iiiabc": "liiabc"
     }
     return corrections.get(name, name)
 
 reader = load_reader()
 
-# --- 2. 界面佈局 ---
+# --- 2. 介面佈局 ---
 if 'player_list' not in st.session_state:
     st.session_state.player_list = ["玩家1", "玩家2", "玩家3", "玩家4", "玩家5", "玩家6"]
 
-# 設定欄位比例
-col_left, col_mid, col_right = st.columns([1, 2.5, 1])
+# 調整比例：讓中間轉盤更大，左右兩側極度縮減
+col_left, col_mid, col_right = st.columns([0.8, 2.5, 0.8])
 
-# --- 左欄：精簡圖片區 ---
+# --- 左欄：強制限制圖片高度 ---
 with col_left:
-    st.subheader("📸 1. 上傳截圖")
-    uploaded_file = st.file_uploader("選擇圖片", type=["jpg", "png", "jpeg"], label_visibility="collapsed")
+    st.markdown("### 📸 1. 截圖")
+    uploaded_file = st.file_uploader("上傳", type=["jpg", "png", "jpeg"], label_visibility="collapsed")
     
     if uploaded_file:
         img = Image.open(uploaded_file)
-        # 優化：限制預覽圖高度為 250px，確保下方的「辨識按鈕」不被擠下去
-        st.image(img, use_container_width=True) 
         
-        if st.button("🔍 執行辨識", use_container_width=True):
+        # 將圖片轉為 base64 嵌入 HTML
+        buffered = BytesIO()
+        img.save(buffered, format="PNG")
+        img_str = base64.b64encode(buffered.getvalue()).decode()
+        
+        # 關鍵修改：使用 HTML/CSS 強制限制顯示高度為 150px，超過會出現捲軸
+        st.markdown(
+            f'''
+            <div style="height: 150px; overflow-y: auto; border: 1px solid #ddd; border-radius: 5px; margin-bottom: 10px;">
+                <img src="data:image/png;base64,{img_str}" style="width: 100%;">
+            </div>
+            ''', 
+            unsafe_allow_html=True
+        )
+        
+        if st.button("🔍 辨識名單", use_container_width=True):
             with st.spinner("辨識中..."):
                 img_array = np.array(img)
                 gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
                 results = reader.readtext(gray)
-                names = [advanced_name_fix(text) for (bbox, text, prob) in results if len(text) > 1 and prob > 0.15]
+                names = [advanced_name_fix(text) for (_, text, prob) in results if len(text) > 1 and prob > 0.15]
                 if names:
                     st.session_state.player_list = sorted(list(set(names)))
                     st.rerun()
 
-# --- 中欄：轉盤 (保持不變) ---
+# --- 中欄：轉盤 (稍微縮小畫布確保不遮擋) ---
 with col_mid:
-    st.subheader("🎡 2. 抽獎轉盤")
+    st.markdown("<h3 style='text-align:center;'>🎡 2. 抽獎轉盤</h3>", unsafe_allow_html=True)
     json_list = json.dumps(st.session_state.player_list)
     wheel_html = f"""
-    <div style="display: flex; flex-direction: column; align-items: center; font-family: sans-serif;">
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
         <div id="container" style="position: relative;">
-            <canvas id="wheel" width="450" height="450" style="border: 5px solid #333; border-radius: 50%;"></canvas>
-            <div id="pointer" style="position: absolute; top: -15px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 18px solid transparent; border-right: 18px solid transparent; border-top: 30px solid #333; z-index: 10;"></div>
+            <canvas id="wheel" width="400" height="400" style="border: 4px solid #333; border-radius: 50%;"></canvas>
+            <div id="pointer" style="position: absolute; top: -10px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 12px solid transparent; border-right: 12px solid transparent; border-top: 25px solid #333; z-index: 10;"></div>
         </div>
-        <button id="spinBtn" style="margin-top: 20px; padding: 12px 60px; font-size: 22px; background: #ff4b4b; color: white; border: none; border-radius: 50px; cursor: pointer; font-weight: bold;">SPIN! 抽獎</button>
-        <div id="resultModal" style="margin-top: 15px; text-align: center; display: none;">
-            <h2 style="color: #ff4b4b; margin: 0;">🎊 WINNER! 🎊</h2>
-            <div id="winnerName" style="font-size: 28px; font-weight: bold; background: #ffff00; padding: 10px 30px; border-radius: 10px; border: 2px solid #ff4b4b; display: inline-block;"></div>
+        <button id="spinBtn" style="margin-top: 15px; padding: 10px 50px; font-size: 20px; background: #ff4b4b; color: white; border: none; border-radius: 50px; cursor: pointer; font-weight: bold;">SPIN! 抽獎</button>
+        <div id="resultModal" style="margin-top: 10px; text-align: center; display: none;">
+            <div id="winnerName" style="font-size: 24px; font-weight: bold; background: #ffff00; padding: 5px 20px; border-radius: 8px; border: 2px solid #ff4b4b; display: inline-block;"></div>
         </div>
     </div>
     <script>
@@ -78,16 +89,14 @@ with col_mid:
     let currentAngle = 0;
     const colors = segments.map((_, i) => `hsl(${{(i * 360 / segments.length)}}, 75%, 60%)`);
     function drawWheel() {{
-        const radius = 225;
-        const arc = 2 * Math.PI / segments.length;
-        ctx.clearRect(0, 0, 450, 450);
+        const radius = 200; const arc = 2 * Math.PI / segments.length;
+        ctx.clearRect(0, 0, 400, 400);
         segments.forEach((text, i) => {{
             const angle = currentAngle + i * arc;
-            ctx.fillStyle = colors[i];
-            ctx.beginPath(); ctx.moveTo(225, 225); ctx.arc(225, 225, radius, angle, angle + arc); ctx.fill();
+            ctx.fillStyle = colors[i]; ctx.beginPath(); ctx.moveTo(200, 200); ctx.arc(200, 200, radius, angle, angle + arc); ctx.fill();
             ctx.strokeStyle = "white"; ctx.stroke();
-            ctx.save(); ctx.fillStyle = "white"; ctx.translate(225, 225); ctx.rotate(angle + arc / 2);
-            ctx.textAlign = "right"; ctx.font = "bold 15px Arial"; ctx.fillText(text, 210, 8); ctx.restore();
+            ctx.save(); ctx.fillStyle = "white"; ctx.translate(200, 200); ctx.rotate(angle + arc / 2);
+            ctx.textAlign = "right"; ctx.font = "bold 14px Arial"; ctx.fillText(text, 190, 5); ctx.restore();
         }});
     }}
     spinBtn.addEventListener('click', () => {{
@@ -102,7 +111,7 @@ with col_mid:
             }} else {{
                 spinBtn.disabled = false;
                 const index = Math.floor((360 - ((currentAngle * 180 / Math.PI) % 360)) / (360 / segments.length)) % segments.length;
-                winnerName.innerText = segments[index]; resultModal.style.display = "block";
+                winnerName.innerText = "🎊 " + segments[index]; resultModal.style.display = "block";
             }}
         }}
         requestAnimationFrame(animate);
@@ -111,25 +120,14 @@ with col_mid:
     </script>
     """
     import streamlit.components.v1 as components
-    components.html(wheel_html, height=700)
+    components.html(wheel_html, height=650)
 
-# --- 右欄：精簡名單管理 ---
+# --- 右欄：極致精簡名單區 ---
 with col_right:
-    st.subheader("📝 3. 名單管理")
-    
-    # 優化：高度縮減至 200，讓下方的按鈕與人數資訊能浮上來
-    edited_names = st.text_area(
-        "名單編輯", 
-        value="\n".join(st.session_state.player_list), 
-        height=250, # 從原本的 400 縮減至 250
-        help="每行一位玩家"
-    )
-    
+    st.markdown("### 📝 3. 名單")
+    edited_names = st.text_area("管理", value="\n".join(st.session_state.player_list), height=180, label_visibility="collapsed")
     current_list = [n.strip() for n in edited_names.split("\n") if n.strip()]
-    
-    if st.button("🔄 同步至轉盤", use_container_width=True):
+    if st.button("🔄 同步", use_container_width=True):
         st.session_state.player_list = current_list
         st.rerun()
-
-    # 顯示人數：現在應該不需要下拉就能看到了
-    st.success(f"當前人數：{len(st.session_state.player_list)} 人")
+    st.info(f"人數：{len(st.session_state.player_list)}")
