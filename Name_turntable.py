@@ -8,12 +8,12 @@ import base64
 from io import BytesIO
 
 # 頁面設定
-st.set_page_config(page_title="遊戲抽獎輪盤 Pro", layout="wide", page_icon="🎡")
+st.set_page_config(page_title="多圖累加抽獎輪盤", layout="wide", page_icon="🎡")
 
-# --- 1. OCR 邏輯 ---
+# --- 1. OCR 邏輯 (支援中英) ---
 @st.cache_resource
 def load_reader():
-    # 支援英文與繁體中文辨識
+    # 載入英文與繁體中文模型
     return easyocr.Reader(['en', 'ch_tra'], gpu=False)
 
 def advanced_name_fix(name):
@@ -25,42 +25,60 @@ def advanced_name_fix(name):
 
 reader = load_reader()
 
-# --- 2. 界面佈局 ---
+# --- 2. 狀態初始化 ---
 if 'player_list' not in st.session_state:
-    st.session_state.player_list = ["玩家1", "玩家2", "玩家3", "玩家4", "玩家5", "玩家6"]
+    st.session_state.player_list = [] # 預設空名單，等待掃描
 
+# --- 3. 界面佈局 ---
 col_left, col_mid, col_right = st.columns([1, 2.5, 1])
 
-# --- 左欄：圖片預覽 (限高) ---
+# --- 左欄：多圖上傳與累加 ---
 with col_left:
-    st.subheader("📸 1. 上傳截圖")
-    uploaded_file = st.file_uploader("選擇圖片", type=["jpg", "png", "jpeg"], label_visibility="collapsed")
+    st.subheader("📸 1. 掃描截圖")
+    # 設為 True 即可一次選取多張圖片，或分次上傳
+    uploaded_files = st.file_uploader("上傳一張或多張截圖", type=["jpg", "png", "jpeg"], accept_multiple_files=True, label_visibility="collapsed")
     
-    if uploaded_file:
-        img = Image.open(uploaded_file)
+    if uploaded_files:
+        # 顯示最近一張上傳的圖片預覽
+        last_img = Image.open(uploaded_files[-1])
         buffered = BytesIO()
-        img.save(buffered, format="PNG")
+        last_img.save(buffered, format="PNG")
         img_str = base64.b64encode(buffered.getvalue()).decode()
         st.markdown(
-            f'''<div style="height: 400px; overflow-y: auto; border: 1px solid #ddd; border-radius: 5px; margin-bottom: 10px;">
+            f'''<div style="height: 300px; overflow-y: auto; border: 1px solid #ddd; border-radius: 5px; margin-bottom: 10px;">
                 <img src="data:image/png;base64,{img_str}" style="width: 100%;">
             </div>''', unsafe_allow_html=True
         )
         
-        if st.button("🔍 執行辨識", use_container_width=True):
-            with st.spinner("辨識中..."):
-                img_array = np.array(img)
-                gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-                results = reader.readtext(gray)
-                names = [advanced_name_fix(text) for (_, text, prob) in results if len(text) > 1 and prob > 0.15]
-                if names:
-                    st.session_state.player_list = sorted(list(set(names)))
-                    st.rerun()
+        if st.button("🔍 辨識並「累加」至名單", use_container_width=True):
+            with st.spinner("正在辨識所有圖片..."):
+                all_new_names = []
+                for file in uploaded_files:
+                    img = Image.open(file)
+                    img_array = np.array(img)
+                    gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+                    results = reader.readtext(gray)
+                    for (_, text, prob) in results:
+                        if len(text) > 1 and prob > 0.15:
+                            all_new_names.append(advanced_name_fix(text))
+                
+                # 取得舊名單並合併新名單，透過 set 去除重複
+                combined_list = list(set(st.session_state.player_list + all_new_names))
+                st.session_state.player_list = sorted(combined_list)
+                st.success(f"已從 {len(uploaded_files)} 張圖中加入名單！")
+                st.rerun()
+
+    if st.button("🗑️ 清空所有名單", use_container_width=True, type="secondary"):
+        st.session_state.player_list = []
+        st.rerun()
 
 # --- 中欄：轉盤功能 ---
 with col_mid:
     st.subheader("🎡 2. 抽獎轉盤")
-    json_list = json.dumps(st.session_state.player_list)
+    # 如果名單為空，給予預設提示
+    display_list = st.session_state.player_list if st.session_state.player_list else ["請先掃描名單"]
+    json_list = json.dumps(display_list)
+    
     wheel_html = f"""
     <div style="display: flex; flex-direction: column; align-items: center; font-family: sans-serif;">
         <div id="container" style="position: relative;">
@@ -92,10 +110,8 @@ with col_mid:
     }}
 
     spinBtn.addEventListener('click', () => {{
-        if (segments.length === 0) return;
+        if (segments.length <= 1 && segments[0] === "請先掃描名單") return;
         spinBtn.disabled = true;
-        
-        // 每次點擊旋轉時，先隱藏右側的中獎結果
         const display = window.parent.document.querySelector("#winner_box");
         if(display) display.style.display = "none";
 
@@ -119,8 +135,6 @@ with col_mid:
                 const sliceSize = 360 / segments.length;
                 const index = Math.floor((360 - (degrees + 90) % 360) / sliceSize) % segments.length;
                 const winner = segments[index >= 0 ? index : index + segments.length];
-                
-                // 結束後顯示中獎結果
                 if(display) {{
                     display.innerHTML = "<div style='font-size:16px; color:#666;'>WINNER</div><div style='color:#ff4b4b;'>🎊 " + winner + " 🎊</div>";
                     display.style.display = "block";
@@ -135,29 +149,24 @@ with col_mid:
     import streamlit.components.v1 as components
     components.html(wheel_html, height=600)
 
-# --- 右欄：名單管理 + 隱藏式中獎結果 ---
+# --- 右欄：名單管理與隱藏結果 ---
 with col_right:
     st.subheader("📝 3. 名單管理")
-    edited_names = st.text_area("名單編輯", value="\n".join(st.session_state.player_list), height=250, label_visibility="collapsed")
-    current_list = [n.strip() for n in edited_names.split("\n") if n.strip()]
+    edited_names = st.text_area("管理", value="\n".join(st.session_state.player_list), height=250, label_visibility="collapsed")
     
-    if st.button("🔄 同步至轉盤", use_container_width=True):
-        st.session_state.player_list = current_list
+    if st.button("🔄 同步修改", use_container_width=True):
+        st.session_state.player_list = [n.strip() for n in edited_names.split("\n") if n.strip()]
         st.rerun()
     
-    st.success(f"當前人數：{len(st.session_state.player_list)} 人")
+    st.success(f"人數：{len(st.session_state.player_list)}")
     
-    # 增加一點間距
     st.markdown("<br>", unsafe_allow_html=True)
-    
-    # --- 中獎顯示區 (預設隱藏且無提示字) ---
+    # 中獎顯示區
     st.markdown(
         '''<div id="winner_box" style="font-size: 24px; font-weight: bold; background: #ffff00; 
         padding: 15px; border-radius: 12px; border: 4px solid #ff4b4b; text-align: center; 
         display: none; box-shadow: 0 4px 10px rgba(0,0,0,0.1); animation: fadeIn 0.5s;">
         </div>
-        <style>
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        </style>
+        <style>@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }</style>
         ''', unsafe_allow_html=True
     )
