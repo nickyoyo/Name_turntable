@@ -14,7 +14,7 @@ st.set_page_config(page_title="OCR 抽獎輪盤", layout="wide", page_icon="🎡
 @st.cache_resource
 def load_reader():
     # 載入英文與繁體中文模型
-    return easyocr.Reader(['en', 'ch_tra'], gpu=False)
+    return easyocr.Reader(['en', 'ch_tra'], gpu=True)
 
 def advanced_name_fix(name):
     corrections = {
