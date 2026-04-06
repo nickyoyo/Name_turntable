@@ -10,11 +10,11 @@ from io import BytesIO
 # 頁面設定
 st.set_page_config(page_title="遊戲抽獎輪盤 Pro", layout="wide", page_icon="🎡")
 
-# --- 1. OCR 邏輯 ---
+# --- 1. OCR 邏輯 (已開啟中文辨識) ---
 @st.cache_resource
 def load_reader():
-    # Streamlit Cloud 建議設為 gpu=False，若你有本地 GPU 環境再改回 True
-    return easyocr.Reader(['en'], gpu=False)
+    # 加入 'ch_tra' 以支援繁體中文辨識
+    return easyocr.Reader(['en', 'ch_tra'], gpu=False)
 
 def advanced_name_fix(name):
     corrections = {
@@ -25,24 +25,24 @@ def advanced_name_fix(name):
 
 reader = load_reader()
 
-# --- 2. 界面佈局 ---
+# --- 2. 介面佈局 ---
 if 'player_list' not in st.session_state:
     st.session_state.player_list = ["玩家1", "玩家2", "玩家3", "玩家4", "玩家5", "玩家6"]
 
+# 設定欄位比例
 col_left, col_mid, col_right = st.columns([1, 2.5, 1])
 
-# --- 左欄：限制圖片預覽高度 ---
+# --- 左欄：圖片預覽 (限高) ---
 with col_left:
     st.subheader("📸 1. 上傳截圖")
     uploaded_file = st.file_uploader("選擇圖片", type=["jpg", "png", "jpeg"], label_visibility="collapsed")
     
     if uploaded_file:
         img = Image.open(uploaded_file)
-        
-        # 使用 Base64 嵌入並限制高度，防止按鈕被擠下去
         buffered = BytesIO()
         img.save(buffered, format="PNG")
         img_str = base64.b64encode(buffered.getvalue()).decode()
+        # 限制高度確保按鈕不被擠下去
         st.markdown(
             f'''<div style="height: 400px; overflow-y: auto; border: 1px solid #ddd; border-radius: 5px; margin-bottom: 10px;">
                 <img src="data:image/png;base64,{img_str}" style="width: 100%;">
@@ -59,7 +59,7 @@ with col_left:
                     st.session_state.player_list = sorted(list(set(names)))
                     st.rerun()
 
-# --- 中欄：修正對位邏輯的轉盤 ---
+# --- 中欄：純轉盤顯示 ---
 with col_mid:
     st.subheader("🎡 2. 抽獎轉盤")
     json_list = json.dumps(st.session_state.player_list)
@@ -70,18 +70,12 @@ with col_mid:
             <div id="pointer" style="position: absolute; top: -15px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 18px solid transparent; border-right: 18px solid transparent; border-top: 35px solid #333; z-index: 10;"></div>
         </div>
         <button id="spinBtn" style="margin-top: 20px; padding: 12px 60px; font-size: 22px; background: #ff4b4b; color: white; border: none; border-radius: 50px; cursor: pointer; font-weight: bold;">SPIN! 抽獎</button>
-        <div id="resultModal" style="margin-top: 15px; text-align: center; display: none;">
-            <h2 style="color: #ff4b4b; margin: 0;">🎊 WINNER! 🎊</h2>
-            <div id="winnerName" style="font-size: 28px; font-weight: bold; background: #ffff00; padding: 10px 30px; border-radius: 10px; border: 2px solid #ff4b4b; display: inline-block;"></div>
-        </div>
     </div>
     <script>
     const segments = {json_list};
     const canvas = document.getElementById('wheel');
     const ctx = canvas.getContext('2d');
     const spinBtn = document.getElementById('spinBtn');
-    const resultModal = document.getElementById('resultModal');
-    const winnerName = document.getElementById('winnerName');
     let currentAngle = 0;
     const colors = segments.map((_, i) => `hsl(${{(i * 360 / segments.length)}}, 75%, 60%)`);
 
@@ -101,10 +95,10 @@ with col_mid:
 
     spinBtn.addEventListener('click', () => {{
         if (segments.length === 0) return;
-        spinBtn.disabled = true; resultModal.style.display = "none";
+        spinBtn.disabled = true;
         const startTime = Date.now(); 
-        const duration = 5000; // 旋轉5秒
-        const minRounds = 8;   // 至少轉8圈
+        const duration = 5000; // 旋轉 5 秒
+        const minRounds = 8;   // 至少轉 8 圈
         const totalRotation = (minRounds * 360) + Math.random() * 360; 
         const startAngle = currentAngle;
 
@@ -118,28 +112,36 @@ with col_mid:
                 requestAnimationFrame(animate);
             }} else {{
                 spinBtn.disabled = false;
-                // --- 修正後的對位算法 ---
-                // 1. 旋轉是順時針增加角度，文字也是順時針排列
-                // 2. 畫布 0 度在 3 點鐘，指針在 12 點鐘 (-90度位置)
-                // 3. 計算時需補償這 90 度的偏移
                 const degrees = (currentAngle * 180 / Math.PI) % 360;
                 const sliceSize = 360 / segments.length;
-                // 算法：(360 - (度數 + 90) % 360) / 每片度數
                 const index = Math.floor((360 - (degrees + 90) % 360) / sliceSize) % segments.length;
+                const winner = segments[index >= 0 ? index : index + segments.length];
                 
-                winnerName.innerText = segments[index >= 0 ? index : index + segments.length]; 
-                resultModal.style.display = "block";
+                // 修正：透過 window.parent 將中獎資訊傳回 Streamlit 顯示
+                // 但為了簡單，我們直接在 JS 結束後修改父視窗內容或通知
+                // 這裡我們直接操作父視窗的一個隱藏元素或利用 Streamlit 渲染機制
+                // 為了最穩定，這裡僅透過按鈕觸發後在右側顯示預留空間
+                document.dispatchEvent(new CustomEvent("winner_found", {{ detail: winner }}));
             }}
         }}
         requestAnimationFrame(animate);
     }});
     drawWheel();
+
+    // 監聽事件並顯示結果
+    document.addEventListener("winner_found", (e) => {{
+        const display = window.parent.document.querySelector("#winner_box");
+        if(display) {{
+            display.innerHTML = "🎊 WINNER: " + e.detail + " 🎊";
+            display.style.display = "block";
+        }}
+    }});
     </script>
     """
     import streamlit.components.v1 as components
-    components.html(wheel_html, height=720)
+    components.html(wheel_html, height=600)
 
-# --- 右欄：名單管理 ---
+# --- 右欄：名單管理 + 中獎結果 ---
 with col_right:
     st.subheader("📝 3. 名單管理")
     edited_names = st.text_area("名單編輯", value="\n".join(st.session_state.player_list), height=250)
@@ -148,4 +150,19 @@ with col_right:
     if st.button("🔄 同步至轉盤", use_container_width=True):
         st.session_state.player_list = current_list
         st.rerun()
+    
     st.success(f"當前人數：{len(st.session_state.player_list)} 人")
+    
+    st.divider()
+    
+    # --- 中獎顯示區移到這裡 ---
+    st.subheader("🏆 中獎者")
+    # 使用一個帶有 ID 的 markdown 容器，讓上面的 JS 可以把結果填進來
+    # 或是透過 Session State 顯示（這裡採用 Streamlit 原生顯示最穩定）
+    # 注意：JS 與 Python 通訊較複雜，此處示範使用 JS 操作 DOM 或簡單提示
+    st.markdown(
+        '''<div id="winner_box" style="font-size: 24px; font-weight: bold; background: #ffff00; 
+        padding: 15px; border-radius: 10px; border: 3px solid #ff4b4b; text-align: center; display: none;">
+        </div>''', unsafe_allow_html=True
+    )
+    st.info("點擊 SPIN 後結果將顯示於此。")
