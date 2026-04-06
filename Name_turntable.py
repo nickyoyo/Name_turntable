@@ -30,9 +30,6 @@ def advanced_fuzzy_merge(name_list, threshold=0.65):
         c = n.strip()
         # 處理數字 0 與字母 O/o 的混淆
         c = c.replace('l000', '1000').replace('0Ol', '001').replace('2Ol', '201')
-        # 處理常見字首混淆
-        if c.startswith('dlan'): c = 'alan' + c[4:]
-        if c.startswith('nKal'): c = 'Ikal'
         # 處理已知 ID
         corrections = {
             "arshedAtcz": "TarnishedArcher",
@@ -47,6 +44,7 @@ def advanced_fuzzy_merge(name_list, threshold=0.65):
             "Senbeimiguc": "Senbeimiguo",
             "Senbelmig": "Senbeimiguo",
             "lkal": "nkai",
+            "Ikal": "nkai", 
         }
         c = corrections.get(c, c)
         if len(c) >= 3: cleaned.append(c)
